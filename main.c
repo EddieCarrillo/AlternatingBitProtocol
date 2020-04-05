@@ -16,6 +16,10 @@
 
 #define BIDIRECTIONAL 0    /* change to 1 if you're doing extra credit */
                            /* and write a routine called B_output */
+#define SENDER 0
+#define RECEIVER 1
+#define MSG_LEN 20
+
 
 /* a "msg" is the data unit passed from layer 5 (teachers code) to layer  */
 /* 4 (students' code).  It contains the data (characters) to be delivered */
@@ -37,10 +41,29 @@ struct pkt {
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
 
 
+/*Sender states*/
+int seq_number = 0;
+int waitingForAck = 0;
+
+/*Receiver states*/
+int expectedSeqNumber = 0;
+
+/*Need to buffer the last sent message just in case it was dropped.*/
+struct pkt* sendPacket;
+
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(struct msg message)
 {
-
+    if (waitingForAck == 1){
+        printf("The sender is currently busy waiting for a packet, dropping the data from the application layer.");
+        return;
+    }
+    printf("Creating packet and sending it to the network layer");
+    //WaitingForAck == 0 Not waiting for an ACK, thus go ahead and process the data.
+    createAndSendPacket(message);
+    printf("Created packet and sent it to the network layer.");
+    waitingForAck = (waitingForAck + 1) % 2;
+    //Don't update the seq number until we receive an ACK.
 }
 
 void B_output(struct msg message)  /* need be completed only for extra credit */
@@ -51,7 +74,22 @@ void B_output(struct msg message)  /* need be completed only for extra credit */
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(struct pkt packet)
 {
+  if (isCorrupt(packet) || packet->acknum != seq_num){
+      printf("The data was corrupted or ACK number is incorrect, thus retrasmitting the data.");
+      //Resend the packet if it was not received properly or the ACK was corrupted.
+      tolayer3(SENDER, *sendPacket);
+  }
 
+}
+
+bool isCorrupt(struct pkt packet){
+    int expectedChecksum = packet->checksum;
+    int calculatedChecksum = 0;
+    int msgLen = 20;
+    int i;
+    for (i = 0; i < msgLen; i++)
+	    calculatedChecksum += (packet->payload)[i];
+    return ((expectedChecksum + calcualtedChecksum) == 0xFFFFFFFF)
 }
 
 /* called when A's timer goes off */
@@ -83,6 +121,26 @@ void B_timerinterrupt()
 /* entity B routines are called. You can use it to do any initialization */
 void B_init()
 {
+}
+
+void createAndSendPacket(struct msg message){
+    sendPacket = (struct pkt*)malloc(sizeof(struct pkt));
+    sendPacket->seqnum = seq_num;
+    sendPacket->checksum = computeCheckSum(message);
+    //Copy the message data into the payload field for the packet
+    int i;
+    for (i = 0; i < MSGLEN; i++)
+        (sendPacket->payload)[i] = message.data[i]
+    //Packet is created at this point.
+    tolayer3(SENDER, *sendPacket);
+}
+
+int computeCheckSum(struct msg message){
+    int checksum = 0;
+    int i;
+    for (i = 0; i < MSG_LEN; i++)
+	    checksum += (message->data)[i];
+    return ~checksum; //Take the ones complement of the sum.
 }
 
 
