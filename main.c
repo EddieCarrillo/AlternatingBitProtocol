@@ -18,8 +18,8 @@
                            /* and write a routine called B_output */
 #define SENDER 0
 #define RECEIVER 1
-#define MSG_LEN 20
-
+#define MSG_LEN 20 //Symbolic constant for max size of message.
+#define TIMER_LEN 20.0f //Being very conservative
 
 /* a "msg" is the data unit passed from layer 5 (teachers code) to layer  */
 /* 4 (students' code).  It contains the data (characters) to be delivered */
@@ -42,26 +42,27 @@ struct pkt {
 
 
 /*Sender states*/
-int seq_number = 0;
+int seq_num = 0;
 int waitingForAck = 0;
 
 /*Receiver states*/
 int expectedSeqNumber = 0;
 
 /*Need to buffer the last sent message just in case it was dropped.*/
-struct pkt* sendPacket;
+struct pkt sendPacket;
 
-/* called from layer 5, passed the data to be sent to other side */
+/* Transport layer sender recieived data from upper layer to send to network layer */
 void A_output(struct msg message)
 {
-    if (waitingForAck == 1){
+    if (waitingForAck){
         printf("The sender is currently busy waiting for a packet, dropping the data from the application layer.");
         return;
     }
     printf("Creating packet and sending it to the network layer");
-    //WaitingForAck == 0 Not waiting for an ACK, thus go ahead and process the data.
-    createAndSendPacket(message);
+    //WaitingForAck == 0 Not waiting for an ACK, thus go ahead and process + send the data.
+    createAndSendSenderPacket(message);
     printf("Created packet and sent it to the network layer.");
+    //We are now waiting for an ACK, so block any data coming from upper layer.
     waitingForAck = (waitingForAck + 1) % 2;
     //Don't update the seq number until we receive an ACK.
 }
@@ -71,31 +72,33 @@ void B_output(struct msg message)  /* need be completed only for extra credit */
 
 }
 
-/* called from layer 3, when a packet arrives for layer 4 */
+/* transport layer send, receives data from the network layer. */
 void A_input(struct pkt packet)
 {
-  if (isCorrupt(packet) || packet->acknum != seq_num){
+   //Corupt ACK, wrong ACK, is a NACK (use negative values for NACK)
+  if (isCorrupt(packet) || packet.acknum != seq_num){
       printf("The data was corrupted or ACK number is incorrect, thus retrasmitting the data.");
       //Resend the packet if it was not received properly or the ACK was corrupted.
-      tolayer3(SENDER, *sendPacket);
+      tolayer3(SENDER, sendPacket);
+      return;
   }
-
-}
-
-bool isCorrupt(struct pkt packet){
-    int expectedChecksum = packet->checksum;
-    int calculatedChecksum = 0;
-    int msgLen = 20;
-    int i;
-    for (i = 0; i < msgLen; i++)
-	    calculatedChecksum += (packet->payload)[i];
-    return ((expectedChecksum + calcualtedChecksum) == 0xFFFFFFFF)
+  //At this point we have that we have received an ACK so...
+  //Stop the timer
+  stoptimer(SENDER);
+  //Update the seq number.
+  seq_num = (seq_num + 1) % 2; 
+  //We can also receive data from the upper layer
+  waitingForAck = (waitingForAck + 1) % 2;
+  
 }
 
 /* called when A's timer goes off */
 void A_timerinterrupt()
 {
-
+   //At this point we should resend the data and reset the timer.
+   tolayer3(SENDER, sendPacket);
+   //Reset the timer.
+   starttimer(SENDER, TIMER_LEN);
 }  
 
 /* the following routine will be called once (only) before any other */
@@ -107,40 +110,72 @@ void A_init()
 
 /* Note that with simplex transfer from a-to-B, there is no B_output() */
 
-/* called from layer 3, when a packet arrives for layer 4 at B*/
+/* Transport layer receiver gets data from network layer.*/
 void B_input(struct pkt packet)
 {
+   if (isCorrupt(packet)){
+
+   }
 }
 
-/* called when B's timer goes off */
-void B_timerinterrupt()
-{
-}
 
-/* the following rouytine will be called once (only) before any other */
-/* entity B routines are called. You can use it to do any initialization */
-void B_init()
-{
-}
 
-void createAndSendPacket(struct msg message){
-    sendPacket = (struct pkt*)malloc(sizeof(struct pkt));
-    sendPacket->seqnum = seq_num;
-    sendPacket->checksum = computeCheckSum(message);
+struct pkt createSenderPacket(struct msg message){
+   struct pkt sndpkt;
+    //Set the sequence number
+   sndpkt.seqnum = seq_num;
     //Copy the message data into the payload field for the packet
-    int i;
-    for (i = 0; i < MSGLEN; i++)
-        (sendPacket->payload)[i] = message.data[i]
-    //Packet is created at this point.
-    tolayer3(SENDER, *sendPacket);
+   int i;
+   for (i = 0; i < MSG_LEN && message.data[i] != '\0'; i++)
+      (sndpkt.payload)[i] = message.data[i];
+    //Compute the checksum
+   sndpkt.checksum = computeCheckSum(sndpkt.payload);
+   return sndpkt;
 }
 
-int computeCheckSum(struct msg message){
-    int checksum = 0;
+void createAndSendSenderPacket(struct msg message){
+   printf("Created the packet.\n");
+    sendPacket = createSenderPacket(message);
+    //Packet is created, now we can send it into the network layer.
+    printf("Sending the packet\n");
+    tolayer3(SENDER, sendPacket);
+    //Start the timer 
+    printf("Starting the packet loss timer.\n");
+    starttimer(SENDER, TIMER_LEN);
+}
+
+int computeChecksum(char msg[], int len)
+{
+    int sum = 0;
     int i;
-    for (i = 0; i < MSG_LEN; i++)
-	    checksum += (message->data)[i];
-    return ~checksum; //Take the ones complement of the sum.
+    for (i = 0; i < len && msg[i] != '\0'; i++)
+	    sum += msg[i];
+    return ~sum;
+}
+
+int isCorrupt(struct pkt packet)
+{
+    int expectedChecksum = packet.checksum;
+    int calculatedChecksum = 0;
+    int msgLen = 20;
+
+    int i;
+    for (i = 0; i < msgLen; i++)
+        calculatedChecksum += (packet.payload)[i];
+        
+    char* calculated = toBinary(calculatedChecksum);
+    char* expected = toBinary(expectedChecksum);
+    char* sum = toBinary(calculatedChecksum + expectedChecksum);
+
+    printf("calculated sum: %s\n", calculated);
+    printf("packet checksum: %s\n", expected);
+    printf("sum: %s\n", sum);
+
+    free(calculated);
+    free(expected);
+    free(sum);
+
+    return ((expectedChecksum + calculatedChecksum) != (0xFFFFFFFF));
 }
 
 
