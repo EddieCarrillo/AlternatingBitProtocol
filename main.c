@@ -121,31 +121,14 @@ void createReceiverPacketAndSend(int acknum){
 }
 
 /* called when B's timer goes off */
-
-
 void B_timerinterrupt()
-
-
 {
-
-
 }
-
-
 /* the following rouytine will be called once (only) before any other */
-
-
 /* entity B routines are called. You can use it to do any initialization */
 
-
 void B_init()
-
-
-
 {
-
-
-
 }
 
 /* Note that with simplex transfer from a-to-B, there is no B_output() */
