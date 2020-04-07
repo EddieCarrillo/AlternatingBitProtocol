@@ -78,7 +78,7 @@ void B_output(struct msg message)  /* need be completed only for extra credit */
 void A_input(struct pkt packet)
 {
    //Corupt ACK, wrong ACK, is a NACK (use negative values for NACK)
-  if (isCorrupt(packet) || packet.acknum != seq_num){
+  if (isCorrupt(SENDER, packet) || packet.acknum != seq_num){
       printf("The data was corrupted or ACK number is incorrect, thus retrasmitting the data.");
       //Resend the packet if it was not received properly or the ACK was corrupted.
       tolayer3(SENDER, sendPacket);
@@ -109,13 +109,51 @@ void A_init()
 {
 }
 
+struct pkt createReceiverPacket(int acknum){
+   struct pkt sndPkt;
+   sndPkt.acknum = acknum;
+   sndPkt.checksum = computeChecksum(RECEIVER, sndPkt);
+   return sndPkt;
+}
+
+void createReceiverPacketAndSend(int acknum){
+    tolayer3(RECEIVER, createReceiverPacket(acknum));
+}
+
+/* called when B's timer goes off */
+
+
+void B_timerinterrupt()
+
+
+{
+
+
+}
+
+
+/* the following rouytine will be called once (only) before any other */
+
+
+/* entity B routines are called. You can use it to do any initialization */
+
+
+void B_init()
+
+
+
+{
+
+
+
+}
 
 /* Note that with simplex transfer from a-to-B, there is no B_output() */
 
 /* Transport layer receiver gets data from network layer.*/
 void B_input(struct pkt packet)
 {
-   if (isCorrupt(packet)){
+   if (isCorrupt(RECEIVER, packet)){
       createReceiverPacketAndSend(-1);
       return;
    }
@@ -135,19 +173,10 @@ void B_input(struct pkt packet)
 
    tolayer5(RECEIVER,message);
    //Send an ACK to the sender.
-   createReceiverPacketAndSend(seq_num);
+   createReceiverPacketAndSend(receiver_seq_num);
+   receiver_seq_num = (receiver_seq_num + 1) % 2;
 }
 
-struct pkt createReceiverPacketAndSend(int acknum){
-    tolayer3(RECEIVER, createReceiverPacket(acknum));
-}
-
-struct pkt createReceiverPacket(int acknum){
-   struct pkt sndPkt;
-   sndPkt.acknum = acknum;
-   sndPkt.checksum = computeChecksum(RECEIVER, sndPkt);
-   return sndPkt;
-}
 
 struct pkt createSenderPacket(struct msg message){
    struct pkt sndpkt;
@@ -158,7 +187,7 @@ struct pkt createSenderPacket(struct msg message){
    for (i = 0; i < MSG_LEN && message.data[i] != '\0'; i++)
       (sndpkt.payload)[i] = message.data[i];
     //Compute the checksum
-   sndpkt.checksum = computeCheckSum(SENDER, sndpkt);
+   sndpkt.checksum = computeChecksum(SENDER, sndpkt);
    return sndpkt;
 }
 
@@ -188,15 +217,34 @@ int computeChecksum(int packetType, struct pkt packet)
     return ~sum;
 }
 
-int isCorrupt(struct pkt packet)
+/*Converts 32 bit integer into C str*/
+char* toBinary (int x)
+{
+    char* msg = (char*) malloc(33* sizeof(char));
+    msg[32] = '\0';
+    int i;
+    for (i = 0; i < 32; i++){
+        msg[31-i] = '0' + ((x >> i) & 1);
+    }
+     return msg;
+}
+
+int isCorrupt(int packetType, struct pkt packet)
 {
     int expectedChecksum = packet.checksum;
     int calculatedChecksum = 0;
-    int msgLen = 20;
-
+    int msgLen = 20; 
     int i;
-    for (i = 0; i < msgLen; i++)
+    //The receiver is expecting a payload and seq_num
+    if (packetType == RECEIVER){
+       for (i = 0; i < msgLen; i++)
         calculatedChecksum += (packet.payload)[i];
+        calculatedChecksum += packet.seqnum;
+    }
+    //The sender side is just expecting the ACK
+    if (packetType == SENDER){
+       calculatedChecksum += packet.acknum;
+    }
         
     char* calculated = toBinary(calculatedChecksum);
     char* expected = toBinary(expectedChecksum);
