@@ -79,12 +79,13 @@ void A_input(struct pkt packet)
 {
    //Corupt ACK, wrong ACK, is a NACK (use negative values for NACK)
   if (isCorrupt(SENDER, packet) || packet.acknum != seq_num){
-      printf("The data was corrupted or ACK number is incorrect, thus retrasmitting the data.");
+      printf("The data was corrupted or ACK number is incorrect, thus retrasmitting the data.\n");
       //Resend the packet if it was not received properly or the ACK was corrupted.
       tolayer3(SENDER, sendPacket);
       return;
   }
   //At this point we have that we have received an ACK so...
+  printf("Received an good ACK from the reciever, can now get new data to send\n");
   //Stop the timer
   stoptimer(SENDER);
   //Update the seq number.
@@ -97,9 +98,13 @@ void A_input(struct pkt packet)
 /* called when A's timer goes off */
 void A_timerinterrupt()
 {
+   printf("TIMER!!! \n");
    //At this point we should resend the data and reset the timer.
+   printf("Resending the packet.\n");
    tolayer3(SENDER, sendPacket);
+   printf("Resent.\n");
    //Reset the timer.
+   printf("Restarting the timer\n");
    starttimer(SENDER, TIMER_LEN);
 }  
 
@@ -137,15 +142,17 @@ void B_init()
 void B_input(struct pkt packet)
 {
    if (isCorrupt(RECEIVER, packet)){
+      printf("Received a corrupt packet. Sending a NACK.\n.");
       createReceiverPacketAndSend(-1);
       return;
    }
    if (packet.seqnum != seq_num){
+      printf("Received a packet with the wrong seq num\n");
       //Send the previous seq number 
       createReceiverPacketAndSend((receiver_seq_num + 1) % 2);
       return;
    }
-
+   printf("Received a good packet from the sender\n");
    //Otherwise the packet is not corrupted and has the correct seq_number, thus 
    //we should send the data up to the upper layer.
    struct msg message;
@@ -153,9 +160,10 @@ void B_input(struct pkt packet)
 
    while (i < MSG_LEN && packet.payload[i] != '\0')
         message.data[i] = packet.payload[i];
-
+   printf("Finished extracting data from the packet and sending it back up to the upper layer\n");
    tolayer5(RECEIVER,message);
    //Send an ACK to the sender.
+   printf("Sent data up to receiving proc, now creating and sending ACK back to sender.\n");
    createReceiverPacketAndSend(receiver_seq_num);
    receiver_seq_num = (receiver_seq_num + 1) % 2;
 }
