@@ -47,6 +47,8 @@ int waitingForAck = 0;
 
 /*Receiver states*/
 int expectedSeqNumber = 0;
+/*The next expected seq number from the sender. Used by the receiver*/
+int receiver_seq_num = 0;
 
 /*Need to buffer the last sent message just in case it was dropped.*/
 struct pkt sendPacket;
@@ -114,11 +116,38 @@ void A_init()
 void B_input(struct pkt packet)
 {
    if (isCorrupt(packet)){
-
+      createReceiverPacketAndSend(-1);
+      return;
    }
+   if (packet.seqnum != seq_num){
+      //Send the previous seq number 
+      createReceiverPacketAndSend((receiver_seq_num + 1) % 2);
+      return;
+   }
+
+   //Otherwise the packet is not corrupted and has the correct seq_number, thus 
+   //we should send the data up to the upper layer.
+   struct msg message;
+   int i;
+
+   while (i < MSG_LEN && packet.payload[i] != '\0')
+        message.data[i] = packet.payload[i];
+
+   tolayer5(RECEIVER,message);
+   //Send an ACK to the sender.
+   createReceiverPacketAndSend(seq_num);
 }
 
+struct pkt createReceiverPacketAndSend(int acknum){
+    tolayer3(RECEIVER, createReceiverPacket(acknum));
+}
 
+struct pkt createReceiverPacket(int acknum){
+   struct pkt sndPkt;
+   sndPkt.acknum = acknum;
+   sndPkt.checksum = computeChecksum(RECEIVER, sndPkt);
+   return sndPkt;
+}
 
 struct pkt createSenderPacket(struct msg message){
    struct pkt sndpkt;
@@ -129,12 +158,12 @@ struct pkt createSenderPacket(struct msg message){
    for (i = 0; i < MSG_LEN && message.data[i] != '\0'; i++)
       (sndpkt.payload)[i] = message.data[i];
     //Compute the checksum
-   sndpkt.checksum = computeCheckSum(sndpkt.payload);
+   sndpkt.checksum = computeCheckSum(SENDER, sndpkt);
    return sndpkt;
 }
 
 void createAndSendSenderPacket(struct msg message){
-   printf("Created the packet.\n");
+    printf("Created the packet.\n");
     sendPacket = createSenderPacket(message);
     //Packet is created, now we can send it into the network layer.
     printf("Sending the packet\n");
@@ -144,12 +173,18 @@ void createAndSendSenderPacket(struct msg message){
     starttimer(SENDER, TIMER_LEN);
 }
 
-int computeChecksum(char msg[], int len)
+int computeChecksum(int packetType, struct pkt packet)
 {
+    
     int sum = 0;
     int i;
-    for (i = 0; i < len && msg[i] != '\0'; i++)
-	    sum += msg[i];
+    if (packetType == SENDER){
+      for (i = 0; i < MSG_LEN && packet.payload[i] != '\0'; i++)
+	        sum += packet.payload[i];
+       sum += packet.seqnum;
+    }
+    if (packetType == RECEIVER)
+        sum += packet.acknum;
     return ~sum;
 }
 
